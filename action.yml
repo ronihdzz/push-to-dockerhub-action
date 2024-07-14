@@ -1,0 +1,109 @@
+name: 'Push to Docker Hub'
+description: 'Pushes the Docker image to Docker Hub'
+inputs:
+  dockerhub-username:
+    description: 'Docker Hub Username'
+    required: true
+  dockerhub-password:
+    description: 'Docker Hub Password'
+    required: true
+  dockerhub-repository:
+    description: 'Docker Hub Repository'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Set environment variables
+      shell: bash
+      run: |
+        BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        case "$BRANCH_NAME" in
+          main) echo "ENVIRONMENT=production" >> $GITHUB_ENV ;;
+          development) echo "ENVIRONMENT=development" >> $GITHUB_ENV ;;
+          staging) echo "ENVIRONMENT=staging" >> $GITHUB_ENV ;;
+        esac
+        echo "Set environment variables: ENVIRONMENT=${ENVIRONMENT}, BRANCH_NAME=${BRANCH_NAME}"
+
+    - name: Debug Environment Variables
+      shell: bash
+      run: |
+        echo "ENVIRONMENT=${ENVIRONMENT}"
+        echo "BRANCH_NAME=${BRANCH_NAME}"
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ inputs.dockerhub-username }}
+        password: ${{ inputs.dockerhub-password }}
+
+    - name: Set Docker image version
+      shell: bash
+      run: |
+        DATE_UTC=$(date -u +"%Y%m%dT%H%M%SZ")
+        echo "VERSION=${DATE_UTC}" >> $GITHUB_ENV
+        echo "Set Docker image version to ${DATE_UTC}"
+
+    - name: Debug Docker Version
+      shell: bash
+      run: |
+        echo "VERSION=${VERSION}"
+
+    - name: Pull existing images
+      shell: bash
+      run: |
+        set -e
+        if docker pull ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-latest; then
+          echo "Existing image found. Tagging as rollback."
+          docker tag ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-latest ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-rollback
+          docker push ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-rollback
+        else
+          echo "No existing image to tag as rollback."
+        fi
+
+    - name: Build Docker image
+      shell: bash
+      run: |
+        IMAGE_NAME="${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-${VERSION}"
+        echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+        docker build -f deployments/Dockerfile.deploy -t "$IMAGE_NAME" .
+        docker tag "$IMAGE_NAME" "${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-latest"
+        echo "Built Docker image: $IMAGE_NAME and tagged as latest"
+
+    - name: Debug Build Info
+      shell: bash
+      run: |
+        echo "Built image name: $IMAGE_NAME"
+        docker images
+
+    - name: Run Docker container to test
+      shell: bash
+      run: |
+        docker run -d --name test_container $IMAGE_NAME
+        echo "Running container to test image: $IMAGE_NAME"
+        docker ps -a
+        docker rm -f test_container
+        echo "Test container removed"
+
+    - name: Push Docker image
+      shell: bash
+      run: |
+        docker push "$IMAGE_NAME"
+        echo "Pushed image: $IMAGE_NAME"
+        docker push "${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-latest"
+        echo "Pushed latest tag: ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-latest"
+        if docker images | grep -q "${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-rollback"; then
+          docker push "${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-rollback"
+          echo "Pushed rollback tag: ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-rollback"
+        fi
+
+    - name: Debug Info
+      shell: bash
+      run: |
+        echo "IMAGE_NAME=${IMAGE_NAME}"
+        docker images
+        echo "Login again to Docker Hub to ensure pushing"
+        docker login -u ${{ inputs.dockerhub-username }} -p ${{ inputs.dockerhub-password }}
+        echo "Pushing images again for verification"
+        docker push $IMAGE_NAME
+        docker push ${{ inputs.dockerhub-repository }}:${ENVIRONMENT}-latest
