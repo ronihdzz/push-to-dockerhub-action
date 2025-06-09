@@ -1,210 +1,162 @@
-# Push to Docker Hub GitHub Action
+# Push to Docker Hub Action
 
-## Description
+## Languages
+- [English](README.md)
+- [Spanish](README.es.md)
 
-This GitHub Action pushes a Docker image to Docker Hub. It also handles tagging and versioning of the Docker image based on the branch and environment.
+### 📘 1. What does this Action do?
 
-## Inputs
+This GitHub Action automates the process of building a Docker image and publishing it to Docker Hub. Its main purpose is to standardize continuous deployment (CI/CD) by associating specific Git branches with Docker environment tags.
 
-- `dockerhub-username` (required): The Docker Hub username needed to authenticate and push the Docker image.
-- `dockerhub-password` (required): The Docker Hub password needed to authenticate and push the Docker image.
-- `dockerhub-repository` (required): The Docker Hub repository where the Docker image will be pushed.
-- `branch-environment-map` (optional): A JSON-formatted string that maps branch names to environment tags. Default is `{"main": "prod", "development": "dev", "staging": "stg", "testing": "tst"}`.
-- `dockerfile-path` (optional): The path to the Dockerfile for deployment. Default is `deployments/Dockerfile.deploy`.
+The workflow is as follows:
 
-## Environment Variables
+1. **Determine environment:** Identifies the Git branch that triggered the workflow (e.g., main, development) and maps it to an environment tag (e.g., prod, dev) using a configurable JSON map. If the branch is not in the map, the Action fails.
 
-- `BRANCH_NAME`: The current branch name. This value is automatically obtained from the GitHub Actions context.
-- `TAG_ENVIRONMENT_DOCKER`: The environment tag determined based on the branch name using the provided `branch-environment-map`.
-- `VERSION`: The Docker image version set to the current UTC date and time.
+2. **Generate unique version:** Creates a unique version tag for the Docker image based on the current UTC date and time (e.g., 20231027T153000Z).
 
-## Steps
+3. **Manage rollback:** Before building the new image, attempts to download the existing latest image for the corresponding environment. If found, it re-tags it as rollback and uploads it to Docker Hub, thus preserving a previous version for possible restorations.
 
-1. **Set environment variables**: Determines the `BRANCH_NAME` and sets the `TAG_ENVIRONMENT_DOCKER` variable based on the branch name using the provided `branch-environment-map`.
-2. **Debug environment variables**: Prints the `TAG_ENVIRONMENT_DOCKER` and `BRANCH_NAME` to the console for debugging purposes.
-3. **Login to Docker Hub**: Authenticates with Docker Hub using the provided username and password.
-4. **Set Docker image version**: Sets the `VERSION` variable to the current UTC date and time.
-5. **Debug Docker version**: Prints the `VERSION` to the console for debugging purposes.
-6. **Pull existing images from Docker Hub**: Pulls the existing Docker image for the environment and tags it as `rollback` if it exists.
-7. **Build Docker image for Docker Hub**: Builds the Docker image using the specified `dockerfile-path` and tags it as the current version and latest.
-8. **Debug build info**: Prints information about the built Docker image.
-9. **Run Docker container to test for Docker Hub**: Runs a Docker container to test the built image and then removes the test container.
-10. **Push Docker image to Docker Hub**: Pushes the Docker image to Docker Hub with the current version, latest, and rollback tags if applicable.
-11. **Debug info**: Prints additional debug information and pushes the images again for verification.
+4. **Build and test image:** Builds the new Docker image from a specific Dockerfile. Once built, tags it with the unique version and also as latest. Performs a quick smoke test by starting a container from the image and immediately removing it to verify it doesn't fail on startup.
 
-## Sequence Diagram
+5. **Publish to Docker Hub:** Uploads to Docker Hub the image with its unique version tag, the environment's latest tag, and the rollback tag (if created).
+
+This Action is ideal for repositories that use an environment-based branch strategy (GitFlow or similar) and need an automated and consistent process for their Docker Hub deployments.
+
+### ⚙️ 2. Required Inputs
+
+Below are the input parameters that the Action uses:
+
+| Input name | Required? | Default value | Technical description |
+|------------|-----------|---------------|---------------------|
+| `dockerhub-username` | ✅ | N/A | Username for Docker Hub authentication |
+| `dockerhub-password` | ✅ | N/A | Password or access token for Docker Hub authentication |
+| `dockerhub-repository` | ✅ | N/A | Docker Hub repository name where the image will be published (e.g., my-user/my-app) |
+| `branch-environment-map` | ❌ | `{"main": "prod", "development": "dev", "staging": "stg", "testing": "tst"}` | JSON object that maps Git branch names to Docker environment tags |
+| `dockerfile-path` | ❌ | `deployments/Dockerfile.deploy` | Relative path to the Dockerfile that will be used to build the image |
+
+### 📈 3. Step-by-step Sequence Diagram
+
+The following diagram illustrates the Action's execution flow, from initial configuration to final publication.
 
 ```mermaid
 sequenceDiagram
-    participant GitHub Actions
-    participant Docker Hub
-    participant Docker Container
+    actor Runner as GitHub Action Runner
+    participant S1 as Set environment variables
+    participant S2 as Login to Docker Hub
+    participant S3 as Set Docker image version
+    participant S4 as Pull existing images
+    participant S5 as Build Docker image
+    participant S6 as Run Docker container to test
+    participant S7 as Push Docker image
+    participant S8 as Final Debug and Re-Push
 
-    GitHub Actions->>GitHub Actions: Set environment variables
-    GitHub Actions->>GitHub Actions: Debug environment variables
-    GitHub Actions->>Docker Hub: Login to Docker Hub
-    GitHub Actions->>GitHub Actions: Set Docker image version
-    GitHub Actions->>GitHub Actions: Debug Docker version
-    GitHub Actions->>Docker Hub: Pull existing images
-    GitHub Actions->>GitHub Actions: Build Docker image using specified Dockerfile path
-    GitHub Actions->>GitHub Actions: Debug build info
-    GitHub Actions->>Docker Container: Run Docker container to test
-    Docker Container->>GitHub Actions: Remove test container
-    GitHub Actions->>Docker Hub: Push Docker image
-    GitHub Actions->>GitHub Actions: Debug info and push images again
+    Runner->>S1: Execute step
+    activate S1
+    S1-->>Runner: Environment variables (BRANCH_NAME, TAG_ENVIRONMENT_DOCKER) saved
+    deactivate S1
+
+    Runner->>S2: Execute step
+    activate S2
+    S2-->>Runner: Logged into Docker Hub
+    deactivate S2
+
+    Runner->>S3: Execute step
+    activate S3
+    S3-->>Runner: Version variable (VERSION) saved
+    deactivate S3
+
+    Runner->>S4: Execute step
+    activate S4
+    S4-->>Runner: Previous 'latest' image (if exists) is tagged and pushed as 'rollback'
+    deactivate S4
+
+    Runner->>S5: Execute step
+    activate S5
+    S5-->>Runner: Image built and tagged with version and 'latest'
+    deactivate S5
+
+    Runner->>S6: Execute step
+    activate S6
+    S6-->>Runner: Test container created and removed
+    deactivate S6
+
+    Runner->>S7: Execute step
+    activate S7
+    S7-->>Runner: Images (versioned, latest, rollback) pushed to Docker Hub
+    deactivate S7
+
+    Runner->>S8: Execute step
+    activate S8
+    S8-->>Runner: Re-authentication and re-push of images for verification
+    deactivate S8
 ```
 
+### 🧠 4. Detailed Algorithm
 
-## Usage Examples
+Below is a step-by-step description of the process that the Action performs:
 
+#### Set environment variables
 
-### 1) Example 1: Default Configuration
+1. Extracts the current branch name from the `GITHUB_REF` environment variable and stores it in `BRANCH_NAME`.
+2. Reads the `branch-environment-map` input (a JSON string) and uses the `jq` utility to find the value associated with the `BRANCH_NAME` key. The result is stored in `TAG_ENVIRONMENT_DOCKER`.
+3. **Condition:** If no match is found for the branch in the map (`TAG_ENVIRONMENT_DOCKER` is null or empty), the script fails with error code 1.
+4. Exports the `BRANCH_NAME` and `TAG_ENVIRONMENT_DOCKER` variables to the GitHub environment (`$GITHUB_ENV`) to make them available in subsequent steps.
 
-Uses the default configuration with branch-environment-map and dockerfile-path. Ideal for users who want a quick setup without customizations.
+#### Debug Environment Variables
 
-```
-name: CI
+- Prints the values of `TAG_ENVIRONMENT_DOCKER` and `BRANCH_NAME` variables for debugging purposes.
 
-on:
-  push:
-    branches:
-      - main
-      - development
-      - staging
-      - testing
-  pull_request:
-    branches:
-      - main
-      - development
-      - staging
-      - testing
+#### Login to Docker Hub
 
-jobs:
-  push-docker-hub:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Run Push to Docker Hub Action
-        uses: ronihdzz/push-to-dockerhub-action@v2
-        with:
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          dockerhub-repository: ${{ vars.DOCKERHUB_REPOSITORY }}
-```
+1. Uses the predefined `docker/login-action@v2` action.
+2. Authenticates to Docker Hub using the `dockerhub-username` and `dockerhub-password` inputs.
 
+#### Set Docker image version
 
-### 2) Example 2: Custom Branch-Environment Map
+1. Generates a text string with the current UTC date and time in `YYYYMMDDTHHMMSSZ` format and stores it in the `DATE_UTC` variable.
+2. Exports this string as the `VERSION` variable to the GitHub environment (`$GITHUB_ENV`).
 
-Customizes the mapping of branches to environments. Useful when branch names do not follow the default names.
+#### Debug Docker Version
 
-```
-name: CI
+- Prints the value of the `VERSION` variable.
 
-on:
-  push:
-    branches:
-      - main
-      - dev
-      - stage
-      - test
-  pull_request:
-    branches:
-      - main
-      - dev
-      - stage
-      - test
+#### Pull existing images
 
-jobs:
-  push-docker-hub:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Run Push to Docker Hub Action
-        uses: ronihdzz/push-to-dockerhub-action@v2
-        with:
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          dockerhub-repository: ${{ vars.DOCKERHUB_REPOSITORY }}
-          branch-environment-map: '{"main": "prod", "dev": "development", "stage": "staging", "test": "testing"}'
-```
+1. Executes the `docker pull` command to attempt downloading the image with the latest tag for the current environment (e.g., `my-repo:prod-latest`).
+2. **Success Condition:** If the image downloads successfully:
+   - Re-tags it with the `-rollback` suffix (e.g., `my-repo:prod-rollback`).
+   - Pushes this new rollback image to Docker Hub with `docker push`.
+3. **Failure Condition:** If no latest image exists, the command fails and displays a message indicating there's no image to use as rollback.
 
-### 3) Example 3: Custom Dockerfile Path
+#### Build Docker image
 
-Uses a custom path for the Dockerfile. Useful if the deployment Dockerfile is not in the default location.
+1. Defines the complete name of the new image using the repository, environment tag, and version (`${{ inputs.dockerhub-repository }}:${TAG_ENVIRONMENT_DOCKER}-${VERSION}`) and stores it in `IMAGE_NAME`.
+2. Exports `IMAGE_NAME` to the GitHub environment (`$GITHUB_ENV`).
+3. Executes `docker build` using the Dockerfile specified in `dockerfile-path`.
+4. Tags the newly built image with the complete `IMAGE_NAME`.
+5. Additionally, tags it as `-latest` for the current environment (e.g., `my-repo:prod-latest`).
 
-```
-name: CI
+#### Debug Build Info
 
-on:
-  push:
-    branches:
-      - main
-      - development
-      - staging
-      - testing
-  pull_request:
-    branches:
-      - main
-      - development
-      - staging
-      - testing
+1. Prints the value of `IMAGE_NAME`.
+2. Executes `docker images` to list all Docker images present in the runner.
 
-jobs:
-  push-docker-hub:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+#### Run Docker container to test
 
-      - name: Run Push to Docker Hub Action
-        uses: ronihdzz/push-to-dockerhub-action@v2
-        with:
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          dockerhub-repository: ${{ vars.DOCKERHUB_REPOSITORY }}
-          dockerfile-path: "custom/path/to/Dockerfile"
-```
+1. Executes `docker run` in detached mode (`-d`) to start a container named `test_container` from the newly built image (`$IMAGE_NAME`).
+2. Lists all containers (`docker ps -a`) to verify their status.
+3. Immediately afterward, forcefully stops and removes the `test_container` with `docker rm -f`.
 
-### 4) Example 4: Custom Branch-Environment Map and Dockerfile Path
+#### Push Docker image
 
-Combines a custom branch-environment map and a custom Dockerfile path. Provides maximum flexibility for advanced configurations.
+1. Executes `docker push` to upload the image with the unique version tag (`$IMAGE_NAME`).
+2. Executes `docker push` to upload the image with the `-latest` tag for the environment.
+3. **Condition:** Verifies if an image with the `-rollback` tag exists locally. If so, pushes it to Docker Hub.
 
-```
-name: CI
+#### Debug Info
 
-on:
-  push:
-    branches:
-      - production
-      - develop
-      - stage
-  pull_request:
-    branches:
-      - production
-      - develop
-      - stage
+1. Prints the value of `IMAGE_NAME` again.
+2. Lists all local Docker images.
+3. Performs a second `docker login` with the same credentials.
+4. Re-executes `docker push` for the versioned image and latest image as a final verification measure.
 
-jobs:
-  push-docker-hub:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Run Push to Docker Hub Action
-        uses: ronihdzz/push-to-dockerhub-action@v2
-        with:
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          dockerhub-repository: ${{ vars.DOCKERHUB_REPOSITORY }}
-          branch-environment-map: '{"production": "prod", "develop": "dev", "stage": "stg"}'
-          dockerfile-path: "custom/path/to/Dockerfile"
-```
-
-## Notes
-
-* Ensure you add `DOCKERHUB_USERNAME` and `DOCKERHUB_PASSWORD` as secrets in your GitHub repository settings.
-* If you want to use a custom branch-environment-map, provide it as a JSON-formatted string. The default is `{"main": "prod", "development": "dev", "staging": "stg", "testing": "tst"}`.
-* If you want to use a custom dockerfile-path, provide it as an input. The default path is `deployments/Dockerfile.deploy`.
