@@ -158,4 +158,88 @@ A continuación se describe el proceso que realiza la Action, paso por paso:
 1. Imprime de nuevo el valor de `IMAGE_NAME`.
 2. Lista todas las imágenes de Docker locales.
 3. Realiza un segundo `docker login` con las mismas credenciales.
-4. Vuelve a ejecutar `docker push` para la imagen con versión y la imagen latest como una medida de verificación final. 
+4. Vuelve a ejecutar `docker push` para la imagen con versión y la imagen latest como una medida de verificación final.
+
+### 🚀 5. Ejemplos de Uso
+
+Aquí se muestran configuraciones de ejemplo para diferentes escenarios.
+
+#### Ejemplo 1: Despliegue en Producción desde la Rama main
+
+Este ejemplo muestra cómo configurar el workflow para que, al hacer un push a la rama main, se construya y publique una imagen en el entorno de producción (prod).
+
+##### Configuración del Workflow
+```yaml
+name: Deploy to Production
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Push to Docker Hub
+        uses: ronihdzz/push-to-dockerhub-action@v2
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+          dockerhub-repository: ${{ secrets.DOCKERHUB_REPOSITORY }}
+```
+
+##### Explicación del Comportamiento
+
+- **Activador**: El workflow se ejecuta cuando hay un push a la rama main.
+
+- **Inputs Utilizados**:
+  - `dockerhub-username` y `dockerhub-password`: Se obtienen de los secrets del repositorio para una autenticación segura.
+  - `dockerhub-repository`: Se obtiene del secret `DOCKERHUB_REPOSITORY` para no exponer el nombre del repositorio directamente en el código.
+  - `branch-environment-map`: Se utiliza el valor por defecto. La Action mapeará la rama main al entorno prod.
+  - `dockerfile-path`: Se usará la ruta por defecto: `deployments/Dockerfile.deploy`.
+
+- **Resultado**: La Action construirá una imagen y la publicará en el repositorio definido en `secrets.DOCKERHUB_REPOSITORY` con las siguientes etiquetas:
+  - `prod-latest` (la imagen más reciente para producción)
+  - `prod-YYYYMMDDTHHMMSSZ` (una etiqueta de versión única)
+  - `prod-rollback` (si existía una imagen prod-latest anterior)
+
+#### Ejemplo 2: Despliegue en Desarrollo con un Dockerfile Personalizado
+
+En este escenario, queremos desplegar en el entorno de desarrollo (dev) desde la rama development y usar un Dockerfile ubicado en una ruta no estándar.
+
+##### Configuración del Workflow
+```yaml
+name: Deploy to Development
+on:
+  push:
+    branches:
+      - development
+jobs:
+  build-and-push-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Push to Docker Hub (Dev)
+        uses: ronihdzz/push-to-dockerhub-action@v2
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+          dockerhub-repository: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          dockerfile-path: 'build/dev/Dockerfile'
+```
+
+##### Explicación del Comportamiento
+
+- **Activador**: El workflow se ejecuta con cada push a la rama development.
+
+- **Inputs Utilizados**:
+  - Se proporcionan las credenciales desde los secrets.
+  - `dockerhub-repository`: También se obtiene de los secrets del repositorio, manteniendo la consistencia.
+  - `branch-environment-map`: Se usa el valor por defecto. La Action mapeará correctamente la rama development al entorno dev.
+  - `dockerfile-path`: Se sobrescribe el valor por defecto para apuntar a `build/dev/Dockerfile`.
+
+- **Resultado**: La Action utilizará el Dockerfile especificado para construir la imagen. Luego, la publicará en el repositorio de Docker Hub definido en los secrets con las etiquetas `dev-latest`, `dev-YYYYMMDDTHHMMSSZ` y, potencialmente, `dev-rollback`. 

@@ -160,3 +160,87 @@ Below is a step-by-step description of the process that the Action performs:
 3. Performs a second `docker login` with the same credentials.
 4. Re-executes `docker push` for the versioned image and latest image as a final verification measure.
 
+### 🚀 5. Usage Examples
+
+Here are example configurations for different scenarios.
+
+#### Example 1: Production Deployment from main Branch
+
+This example shows how to configure the workflow to build and publish an image to the production environment (prod) when pushing to the main branch.
+
+##### Workflow Configuration
+```yaml
+name: Deploy to Production
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Push to Docker Hub
+        uses: ronihdzz/push-to-dockerhub-action@v2
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+          dockerhub-repository: ${{ secrets.DOCKERHUB_REPOSITORY }}
+```
+
+##### Behavior Explanation
+
+- **Trigger**: The workflow runs when there's a push to the main branch.
+
+- **Used Inputs**:
+  - `dockerhub-username` and `dockerhub-password`: Obtained from repository secrets for secure authentication.
+  - `dockerhub-repository`: Obtained from the `DOCKERHUB_REPOSITORY` secret to avoid exposing the repository name directly in the code.
+  - `branch-environment-map`: Uses the default value. The Action will map the main branch to the prod environment.
+  - `dockerfile-path`: Will use the default path: `deployments/Dockerfile.deploy`.
+
+- **Result**: The Action will build an image and publish it to the repository defined in `secrets.DOCKERHUB_REPOSITORY` with the following tags:
+  - `prod-latest` (the most recent image for production)
+  - `prod-YYYYMMDDTHHMMSSZ` (a unique version tag)
+  - `prod-rollback` (if a previous prod-latest image existed)
+
+#### Example 2: Development Deployment with Custom Dockerfile
+
+In this scenario, we want to deploy to the development environment (dev) from the development branch and use a Dockerfile located in a non-standard path.
+
+##### Workflow Configuration
+```yaml
+name: Deploy to Development
+on:
+  push:
+    branches:
+      - development
+jobs:
+  build-and-push-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Push to Docker Hub (Dev)
+        uses: ronihdzz/push-to-dockerhub-action@v2
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+          dockerhub-repository: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          dockerfile-path: 'build/dev/Dockerfile'
+```
+
+##### Behavior Explanation
+
+- **Trigger**: The workflow runs with each push to the development branch.
+
+- **Used Inputs**:
+  - Credentials are provided from secrets.
+  - `dockerhub-repository`: Also obtained from repository secrets, maintaining consistency.
+  - `branch-environment-map`: Uses the default value. The Action will correctly map the development branch to the dev environment.
+  - `dockerfile-path`: Overrides the default value to point to `build/dev/Dockerfile`.
+
+- **Result**: The Action will use the specified Dockerfile to build the image. Then, it will publish it to the Docker Hub repository defined in the secrets with the tags `dev-latest`, `dev-YYYYMMDDTHHMMSSZ`, and potentially `dev-rollback`.
+
